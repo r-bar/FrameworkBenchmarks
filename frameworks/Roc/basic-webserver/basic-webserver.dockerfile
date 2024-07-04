@@ -1,6 +1,6 @@
 FROM debian:12-slim AS builder
 RUN apt-get update \
-  && apt-get install -yqq libc-dev binutils \
+  && apt-get install -yqq libc-dev binutils sqlite3 \
   && apt-get clean \
   ;
 ARG ROC_URL="https://github.com/roc-lang/roc/releases/download/nightly/roc_nightly-linux_x86_64-latest.tar.gz"
@@ -12,8 +12,12 @@ RUN tar xzf roc.tar.gz \
   ;
 WORKDIR /app
 COPY main.roc /app
-RUN /roc/roc build --optimize --linker legacy main.roc | grep "successfully building"
+COPY create-sqlite.sql /app
+RUN sqlite3 main.db < create-sqlite.sql
+RUN /roc/roc build --optimize --linker legacy main.roc \
+  | grep -q "successfully building"
 
 FROM debian:12-slim
 COPY --from=builder /app/main /app/main
+COPY --from=builder main.db /app/main.db
 ENTRYPOINT ["/app/main"]

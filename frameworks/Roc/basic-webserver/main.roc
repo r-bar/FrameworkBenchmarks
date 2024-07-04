@@ -6,7 +6,7 @@ app [main] {
 
 import json.Json
 import pf.Task exposing [Task]
-import pf.Http exposing [Request, Response, defaultRequest, methodToStr]
+import pf.Http exposing [Request, Response, methodToStr]
 import pf.SQLite3
 #import pf.Utc
 #import pf.Stdout
@@ -73,21 +73,6 @@ App : {
 }
 
 
-preprocess : Task Request [], Middleware -> Task Request []
-preprocess = \req, middleware -> Task.await req middleware.preprocessRequest
-        
-
-postprocess : Task Response [], Middleware -> Task Response []
-postprocess = \resp, middleware -> Task.await resp middleware.postprocessResponse
-
-
-handleRequest : Task Request [], Router -> Task Response []
-handleRequest = \reqTask, myRouter ->
-    Task.await reqTask \req ->
-        handler = myRouter req
-        handler req
-
-
 ## Given middleware [a, b, c], the request will be processed as follows:
 ##
 ##   a.preprocessRequest
@@ -101,9 +86,15 @@ processRequest : App -> (Request -> Task Response [])
 processRequest = \app -> \request ->
     #datetime = Task.map! Utc.toIso8601Str Utc.now
     #Stdout.line! "$(datetime) $(Http.methodToStr req.method) $(req.url)"
+    #preprocess = \req, middleware -> Task.await req middleware.preprocessRequest
+    postprocess = \resp, middleware -> Task.await resp middleware.postprocessResponse
+    handleRequest = \reqTask ->
+        Task.await reqTask \req ->
+            handler = app.router req
+            handler req
     Task.ok request
         #|> \req -> List.walk app.middleware req preprocess
-        |> handleRequest app.router
+        |> handleRequest
         |> \req -> List.walkBackwards app.middleware req postprocess
 
 
@@ -122,24 +113,36 @@ urlSegments = \url ->
         other -> other
 
 
-############
-### JSON ###
-############
-
-
 encodeJson : a -> List U8 where a implements Encoding
 encodeJson = \obj ->
     Encode.toBytes obj Json.utf8
 
 
+jsonResponse : a, U16 -> Response where a implements Encoding
+jsonResponse = \body, status ->
+    { status
+    , headers: [{ name: "Content-Type" , value: Str.toUtf8 "application/json" }]
+    , body: encodeJson body
+    }
+
+
+textResponse : Str, U16 -> Response
+textResponse = \body, status ->
+    { status
+    , headers: [{ name: "Content-Type" , value: Str.toUtf8 "text/plain" }]
+    , body: Str.toUtf8 body
+    }
+
+
+############
+### JSON ###
+############
+
+
 jsonHandler : Handler
 jsonHandler = \_req ->
-    Task.ok {
-        status: 200,
-        headers: [{ name: "Content-Type", value: Str.toUtf8 "application/json" }],
-        #body: Str.toUtf8 "{ \"message\": \"Hello, World!\" }",
-        body: encodeJson { message : "Hello, World!" }
-    }
+    jsonResponse { message : "Hello, World!" } 200
+        |> Task.ok
 
 
 #############################
@@ -149,37 +152,20 @@ jsonHandler = \_req ->
 
 singleQueryHandler : Handler
 singleQueryHandler = \_req ->
-    #Sqlite.execute {
-    #    path: sqlitePath,
-    #    query : "SELECT * FROM World WHERE id = abs(random() % 10000);",
-    #    bindings: [{name: "id", value: Num.toStr id}]
-    #}
-    #|> Task.map \rows ->
-    #    when rows is
-    #        [] -> {
-    #            status: 404,
-    #            headers: [],
-    #            body: Str.toUtf8 "404 Not Found"
-    #        }
-    #        [[Integer id, Integer num]] -> {
-    #            status: 200,
-    #            headers: [
-    #                { name: "Content-Type", value: Str.toUtf8 "application/json" },
-    #                { name: "Server", value: Str.toUtf8 "roc-basic-webserver" },
-    #                { name: "Date", value: Str.toUtf8 "Sun, 10 Oct 2021 14:00:00 GMT" },
-    #            ],
-    #            body: encodeJson { id : id, randomNumber : num }
-    #        }
-    #        _ -> {
-    #            status: 500,
-    #            headers: [],
-    #            body: Str.toUtf8 "500 Internal Server Error\n\nUnexpected response from database"
-    #        }
-    #|> Task.onErr \err ->
-    #    Ok {
-    #        status: 500,
-    #        headers: [],
-    #        body: Str.toUtf8 "500 Internal Server Error\n\n$(SQLite3.errToStr err)"
-    #    }
-    #|> Task.await
-    Task.ok { status: 200, headers: [], body: Str.toUtf8 "Hello, World!" }
+    SQLite3.execute
+        { path: sqlitePath
+        , query : "SELECT * FROM World WHERE id = abs(random()) % 10000;"
+        , bindings: []
+        }
+    |> Task.map \rows ->
+        when rows is
+            [] ->
+                textResponse "404 Not Found" 404
+            [[Integer id, Integer num]] ->
+                jsonResponse { id, randomNumber : num } 200
+            _ ->
+                textResponse "Unexpected response from database" 500
+    |> Task.onErr \err ->
+        SQLite3.errToStr err
+            |> textResponse 500
+            |> Task.ok
