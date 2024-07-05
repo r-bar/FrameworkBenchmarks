@@ -9,6 +9,7 @@ import pf.Task exposing [Task]
 import pf.Http exposing [Request, Response, methodToStr]
 import pf.SQLite3
 import pf.Url
+import pf.Utc
 
 sqlitePath = "main.db"
 
@@ -38,18 +39,19 @@ myApp =
 
 
 standardHeaders : Middleware
-standardHeaders = {
-    noopMiddleware &
-    postprocessResponse: \response ->
+standardHeaders =
+    postprocessResponse : Response -> Task Response []
+    postprocessResponse = \response ->
         #TODO: real date generation
-        #date = Task.ok! "Sun, 10 Oct 2021 14:00:00 GMT"
+        #date = "Sun, 10 Oct 2021 14:00:00 GMT"
+        date = datetime
+            |> Task.onErr! \_ -> Task.ok ""
         headers = List.concat response.headers [
             { name: "Server", value: Str.toUtf8 "roc-basic-webserver" },
-            #{ name: "Date", value: Str.toUtf8 date },
-            { name: "Date", value: Str.toUtf8 "Sun, 10 Oct 2021 14:00:00 GMT" },
+            { name: "Date", value: Str.toUtf8 date },
         ]
         Task.ok { status: response.status, body: response.body, headers }
-}
+    { noopMiddleware & postprocessResponse }
 
 
 notFoundHandler : Handler
@@ -172,6 +174,38 @@ htmlEscape = \str ->
         |> Str.replaceEach "/" "&#x2F;"
         |> Str.replaceEach "\\" "&#x5C;"
 
+monthMap : Dict Str Str
+monthMap =
+    Dict.empty {}
+    |> Dict.insert "01" "Jan"
+    |> Dict.insert "02" "Feb"
+    |> Dict.insert "03" "Mar"
+    |> Dict.insert "04" "Apr"
+    |> Dict.insert "05" "May"
+    |> Dict.insert "06" "Jun"
+    |> Dict.insert "07" "Jul"
+    |> Dict.insert "08" "Aug"
+    |> Dict.insert "09" "Sep"
+    |> Dict.insert "10" "Oct"
+    |> Dict.insert "11" "Nov"
+    |> Dict.insert "12" "Dec"
+    
+
+datetime : Task Str _
+datetime =
+    now = Utc.now!
+    dateTimeParts = Str.splitFirst (Utc.toIso8601Str now) "T"
+        |> Task.fromResult!
+    dateRes = when Str.split dateTimeParts.before "-" is
+        [year, month, day] ->
+            Dict.get monthMap month
+                |> Result.map \monthName -> { year, month, day, monthName }
+        _ -> Err InvalidDate
+    date = Task.fromResult! dateRes
+    time = Str.replaceLast dateTimeParts.after "Z" ""
+    #TODO: day of week calculation
+    dow = "Sun"
+    Task.ok "$(dow), $(date.day) $(date.monthName) $(date.year) $(time) UTC"
 
 
 ############

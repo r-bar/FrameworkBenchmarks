@@ -270,7 +270,8 @@ class Benchmarker:
                 with open(raw_file, 'w'):
                     pass
 
-            if not test.failed:
+            # if not test.failed:
+            if True:
                 # Begin resource usage metrics collection
                 self.__begin_logging(framework_test, test_type)
 
