@@ -8,8 +8,9 @@ import json.Json
 import pf.Task exposing [Task]
 import pf.Http exposing [Request, Response, methodToStr]
 import pf.SQLite3
+import pf.Url
 #import pf.Utc
-#import pf.Stdout
+import pf.Stdout
 
 sqlitePath = "main.db"
 
@@ -26,9 +27,10 @@ main = processRequest myApp
 myApp : App
 myApp =
     { router : \req ->
-        when (req.method, urlSegments req.url) is
+        when (req.method, pathSegments req.url) is
             (Get, ["json", ..]) -> jsonHandler
             (Get, ["db", ..]) -> singleQueryHandler
+            (Get, ["queries", ..]) -> multipleQueryHandler
             _ -> notFoundHandler
     , middleware : [standardHeaders]
     }
@@ -60,16 +62,15 @@ notFoundHandler = \req ->
 ### Framework ###
 #################
 
-
 Handler : Request -> Task Response []
 Middleware : {
     preprocessRequest : Request -> Task Request [],
-    postprocessResponse : Response -> Task Response []
+    postprocessResponse : Response -> Task Response [],
 }
 Router : Request -> Handler
 App : {
   router : Router,
-  middleware : List Middleware
+  middleware : List Middleware,
 }
 
 
@@ -105,9 +106,10 @@ noopMiddleware = {
 }
 
 
-urlSegments : Str -> List Str
-urlSegments = \url ->
-    when Str.split url "/" is
+pathSegments : Str -> List Str
+pathSegments = \urlStr ->
+    url = Url.fromStr urlStr
+    when Str.split (Url.path url) "/" is
         [] -> []
         ["", .. as rest] -> rest
         other -> other
@@ -132,6 +134,17 @@ textResponse = \body, status ->
     , headers: [{ name: "Content-Type" , value: Str.toUtf8 "text/plain" }]
     , body: Str.toUtf8 body
     }
+
+
+withErrorHandling :
+    # handler                     # error handler
+    (Request -> Task Response a), (a -> Task Response []) -> Handler
+withErrorHandling = \handler, errorHandler -> \request ->
+    handler request
+      |> Task.onErr errorHandler
+        #Ok resp -> Task.ok resp
+        #Err err -> errorHandler err
+
 
 
 ############
@@ -161,11 +174,58 @@ singleQueryHandler = \_req ->
         when rows is
             [] ->
                 textResponse "404 Not Found" 404
-            [[Integer id, Integer num]] ->
-                jsonResponse { id, randomNumber : num } 200
+            [[Integer id, Integer randomNumber]] ->
+                jsonResponse { id, randomNumber } 200
             _ ->
                 textResponse "Unexpected response from database" 500
     |> Task.onErr \err ->
         SQLite3.errToStr err
             |> textResponse 500
             |> Task.ok
+
+
+########################
+### Multiple Queries ###
+########################
+
+
+multipleQuery : U64 -> Task (List { id: I64, randomNumber: I64 }) [SQLError _ _, UnexpectedDatabaseResponse]
+multipleQuery = \count ->
+    queries = List.repeat "SELECT * FROM World WHERE id = abs(random()) % 10000;" count
+    List.walk queries (Task.ok []) \resultAcc, query ->
+        Task.await resultAcc \acc ->
+            SQLite3.execute { path: sqlitePath, query, bindings: [] }
+                |> Task.await \rows ->
+                    when rows is
+                        [[Integer id, Integer randomNumber]] ->
+                            List.append acc { id, randomNumber }
+                            |> Task.ok
+                        _ -> Task.err UnexpectedDatabaseResponse
+
+
+multipleQueryHandler : Handler
+multipleQueryHandler =
+    withErrorHandling
+        \req ->
+            #Stdout.line! "Request: $(req.url)"
+            count = Url.queryParams (Url.fromStr req.url)
+                |> Dict.get "queries"
+                |> Result.try Str.toU64
+                |> Task.fromResult!
+            rows = multipleQuery! count
+            jsonResponse rows 200
+                |> Task.ok
+        \err ->
+            when err is
+                InvalidNumStr ->
+                  textResponse "Invalid number of queries" 400
+                      |> Task.ok
+                KeyNotFound ->
+                  textResponse "404 Not Found" 404
+                      |> Task.ok
+                UnexpectedDatabaseResponse ->
+                  textResponse "Unexpected response from database" 500
+                      |> Task.ok
+                SQLError _dbCode _dbErr ->
+                  textResponse "Database error" 500
+                      |> Task.ok
