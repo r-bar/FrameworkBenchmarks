@@ -9,8 +9,6 @@ import pf.Task exposing [Task]
 import pf.Http exposing [Request, Response, methodToStr]
 import pf.SQLite3
 import pf.Url
-#import pf.Utc
-import pf.Stdout
 
 sqlitePath = "main.db"
 

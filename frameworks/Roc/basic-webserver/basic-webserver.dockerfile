@@ -18,6 +18,9 @@ RUN /roc/roc build --optimize --linker legacy main.roc \
   | grep -q "successfully building"
 
 FROM debian:12-slim
+EXPOSE 8000
+ENV ROC_BASIC_WEBSERVER_HOST="0.0.0.0"
 COPY --from=builder /app/main /app/main
-COPY --from=builder main.db /app/main.db
-ENTRYPOINT ["/app/main"]
+COPY --from=builder /app/main.db /app/main.db
+WORKDIR /app
+ENTRYPOINT ["./main"]

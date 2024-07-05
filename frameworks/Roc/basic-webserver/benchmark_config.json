@@ -1,0 +1,30 @@
+{
+  "framework": "basic-webserver",
+  "maintainers": ["r-bar"],
+  "tests": [{
+    "default": {
+      "json_url": "/json",
+      "db_url": "/db",
+      "query_url": "/queries",
+      "update_url": "/updates",
+      "fortune_url": "/fortunes",
+      "plaintext_url": "/plaintext",
+      "port": 8000,
+      "debug_port": null,
+      "approach": "Realistic",
+      "classification": "Micro",
+      "database": "None",
+      "framework": "basic-webserver",
+      "language": "Roc",
+      "flavor": "None",
+      "orm": "Micro",
+      "platform": "basic-webserver",
+      "webserver": "hyper",
+      "os": "Linux",
+      "database_os": "Linux",
+      "display_name": "Roc basic-webserver",
+      "notes": "",
+      "versus": "None"
+    }
+  }]
+}
