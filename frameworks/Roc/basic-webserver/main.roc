@@ -27,11 +27,11 @@ myApp : App
 myApp =
     { router : \req ->
         when (req.method, pathSegments req.url) is
-            (Get, ["json", ..]) -> jsonHandler
-            (Get, ["db", ..]) -> singleQueryHandler
-            (Get, ["queries", ..]) -> multipleQueryHandler
-            (Get, ["fortunes", ..]) -> fortunesHandler
-            (Get, ["updates", ..]) -> updateQueriesHandler
+            (Get, ["json"]) -> jsonHandler
+            (Get, ["db"]) -> singleQueryHandler
+            (Get, ["queries", count]) -> multipleQueryHandler count
+            (Get, ["fortunes"]) -> fortunesHandler
+            (Get, ["updates", count]) -> updateQueriesHandler count
             (Get, ["plaintext", ..]) -> plaintextHandler
             _ -> notFoundHandler
     , middleware : [standardHeaders]
@@ -264,14 +264,12 @@ multipleQuery = \count ->
                         _ -> Task.err UnexpectedDatabaseResponse
 
 
-multipleQueryHandler : Handler
-multipleQueryHandler =
+multipleQueryHandler : Str -> Handler
+multipleQueryHandler = \countStr ->
     withErrorHandling
-        \req ->
-            #Stdout.line! "Request: $(req.url)"
-            count = Url.queryParams (Url.fromStr req.url)
-                |> Dict.get "queries"
-                |> Result.try Str.toU64
+        \_req ->
+            count : U64
+            count = Str.toU64 countStr
                 |> Task.fromResult!
                 |> Num.min 500
             rows = multipleQuery! count
@@ -382,14 +380,12 @@ updateQuery = \ids ->
     Task.ok {}
 
 
-updateQueriesHandler : Handler
-updateQueriesHandler =
+updateQueriesHandler : Str -> Handler
+updateQueriesHandler = \countStr ->
     withErrorHandling
-        \req ->
+        \_req ->
             count : U64
-            count = Url.queryParams (Url.fromStr req.url)
-                |> Dict.get "queries"
-                |> Result.try Str.toU64
+            count = Str.toU64 countStr
                 |> Task.fromResult!
                 |> Num.min 500
             rows = multipleQuery! count
